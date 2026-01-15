@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
+    <meta name="theme-color" content="#0088cc">
+    <title>Chat App</title>
+    <style>
+        :root {
+            --main-color: #0088cc;
+            --bg-color: #e5e5e5;
+            --sidebar-bg: #fff;
+            --status-online: #2ecc71;
+            --status-offline: #95a5a6;
+            --status-dnd: #e74c3c;
+            --msg-bg: #fff;
+            --msg-mine-text: #fff;
+        }
+
+        body { 
+            margin: 0; 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; 
+            height: 100vh;
+            height: 100dvh; 
+            overflow: hidden; 
+            background: var(--bg-color); 
+            position: fixed; 
+            width: 100%;
+        }
+        
+        /* AUTH & LAYOUT */
+        #login-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(to right, #4facfe 0%, #00f2fe 100%); display: flex; justify-content: center; align-items: center; z-index: 9999; }
+        .auth-box { background: white; padding: 30px; border-radius: 15px; width: 100%; max-width: 340px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.2); margin: 20px; box-sizing: border-box; }
+        .auth-step { display: none; animation: fadeIn 0.3s; }
+        .auth-step.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        input { padding: 12px; margin: 8px 0; width: 100%; box-sizing: border-box; border: 1px solid #ddd; border-radius: 10px; outline: none; transition: 0.2s; font-size: 16px; }
+        input:focus { border-color: var(--main-color); }
+        
+        button.primary-btn { padding: 14px; background-color: var(--main-color); color: white; border: none; border-radius: 10px; cursor: pointer; width: 100%; margin-top: 10px; font-weight: bold; font-size: 16px; touch-action: manipulation; }
+        button.link-btn { background: none; border: none; color: var(--main-color); margin-top: 15px; cursor: pointer; font-size: 14px; padding: 10px; }
+        .error { color: #e74c3c; font-size: 0.85em; min-height: 20px; margin-top: 5px; text-align: left; }
+        .avatar-upload-circle { width: 120px; height: 120px; border-radius: 50%; background: #f0f0f0; border: 3px dashed #ccc; margin: 20px auto; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; cursor: pointer; }
+        .avatar-upload-circle img { width: 100%; height: 100%; object-fit: cover; }
+
+        /* APP STRUCTURE */
+        #main-app { display: none; width: 100%; height: 100%; background: var(--bg-color); position: relative; overflow: hidden; }
+        #sidebar { width: 320px; background: var(--sidebar-bg); border-right: 1px solid #ddd; display: flex; flex-direction: column; z-index: 2; height: 100%; }
+        #chat-view { flex: 1; display: flex; flex-direction: column; height: 100%; background-image: url('https://web.telegram.org/img/bg_0.png'); background-size: cover; position: relative; z-index: 1; }
+
+        @media (max-width: 768px) {
+            #sidebar { width: 100%; position: absolute; top:0; left:0; transition: transform 0.3s ease; }
+            #chat-view { width: 100%; position: absolute; top:0; left:0; transform: translateX(100%); transition: transform 0.3s ease; }
+            #main-app.mobile-chat-open #sidebar { transform: translateX(-20%); opacity: 0; pointer-events: none; }
+            #main-app.mobile-chat-open #chat-view { transform: translateX(0); z-index: 10; }
+        }
+
+        #sidebar-header { padding: 15px; background: var(--main-color); color: white; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+        .user-nav { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+        .user-nav img { width: 40px; height: 40px; border-radius: 50%; background: #fff; object-fit: cover; }
+        
+        .status-dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid white; position: absolute; bottom: 0; right: 0; }
+        .status-online { background-color: var(--status-online); }
+        .status-offline { background-color: var(--status-offline); }
+        .status-dnd { background-color: var(--status-dnd); }
+
+        #search-box { padding: 10px; border-bottom: 1px solid #eee; display: flex; gap: 5px; background: #fff; flex-shrink: 0; }
+        #contacts-list { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+        
+        .contact-item { padding: 15px; border-bottom: 1px solid #f5f5f5; cursor: pointer; display: flex; align-items: center; transition: 0.2s; background: #fff; }
+        .contact-item:active { background-color: #f0f0f0; }
+        .contact-item.active { background-color: #e3f2fd; border-left: 4px solid var(--main-color); }
+        .contact-avatar-wrap { position: relative; margin-right: 15px; }
+        .contact-avatar { width: 50px; height: 50px; border-radius: 50%; object-fit: cover; background: #ddd; }
+
+        #chat-header { padding: 10px 15px; background: #fff; border-bottom: 1px solid #ddd; font-weight: bold; color: #333; display: flex; justify-content: space-between; align-items: center; height: 60px; box-sizing: border-box; flex-shrink: 0; }
+        #mobile-back-btn { display: none; background: none; border: none; font-size: 24px; margin-right: 15px; cursor: pointer; color: #555; }
+        @media (max-width: 768px) { #mobile-back-btn { display: block; } }
+
+        #messages-box { flex: 1; padding: 15px; overflow-y: scroll; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+        
+        .msg { max-width: 75%; padding: 10px 14px; border-radius: 12px; font-size: 15px; background: var(--msg-bg); align-self: flex-start; box-shadow: 0 1px 2px rgba(0,0,0,0.1); position: relative; word-wrap: break-word; }
+        .msg.mine { align-self: flex-end; background-color: var(--main-color); color: var(--msg-mine-text); }
+        
+        .msg-reply-preview { border-left: 3px solid #ddd; padding-left: 8px; margin-bottom: 5px; font-size: 13px; opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+        .mine .msg-reply-preview { border-left-color: rgba(255,255,255,0.5); }
+
+        #reply-bar { display: none; padding: 10px; background: #f0f0f0; border-top: 1px solid #ddd; align-items: center; justify-content: space-between; font-size: 14px; color: #555; }
+        #reply-bar strong { color: var(--main-color); display: block; margin-bottom: 2px; }
+
+        #input-area { padding: 10px; background: #fff; display: flex; gap: 10px; align-items: center; border-top: 1px solid #eee; flex-shrink: 0; padding-bottom: env(safe-area-inset-bottom, 10px); }
+        .icon-btn { width: 44px; height: 44px; border-radius: 50%; border: none; background: transparent; color: #777; font-size: 22px; cursor: pointer; display: flex; justify-content: center; align-items: center; flex-shrink: 0; }
+        .icon-btn.recording { color: red; animation: pulse 1s infinite; background: #fee; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+
+        audio { height: 36px; max-width: 240px; margin-top: 5px; }
+        video { max-width: 100%; border-radius: 8px; background: #000; margin-top: 5px; }
+
+        #settings-modal { display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.5); z-index: 2000; justify-content: center; align-items: center; backdrop-filter: blur(5px); }
+        .modal-content { background: white; border-radius: 12px; width: 700px; max-width: 90%; height: 550px; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+        .close-modal { position: absolute; top: 15px; right: 15px; background: transparent; border: none; font-size: 24px; cursor: pointer; color: #999; z-index: 10; padding: 10px; }
+        .tabs { display: flex; background: #f9f9f9; border-bottom: 1px solid #eee; overflow-x: auto; flex-shrink: 0; }
+        .tab-btn { padding: 15px 20px; cursor: pointer; font-weight: bold; color: #777; border-bottom: 3px solid transparent; }
+        .tab-btn.active { color: var(--main-color); border-bottom-color: var(--main-color); background: #fff; }
+        .tab-content { padding: 20px; overflow-y: auto; flex: 1; display: none; }
+        .tab-content.active { display: block; }
+        .section-title { font-size: 18px; font-weight: bold; margin-bottom: 15px; color: #333; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 5px; color: #666; font-size: 14px; }
+        .code-box { padding: 15px; border: 2px dashed #ddd; border-radius: 8px; background: #fdfdfd; display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .code-value { font-size: 22px; font-family: monospace; font-weight: bold; letter-spacing: 2px; color: #333; }
+        .color-options { display: flex; gap: 15px; flex-wrap: wrap; margin-top: 10px; }
+        .color-circle { width: 45px; height: 45px; border-radius: 50%; cursor: pointer; border: 3px solid transparent; transition: 0.2s; }
+        .inline-btn { padding: 8px 15px; border: 1px solid #ccc; background: white; border-radius: 6px; cursor: pointer; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div id="login-overlay">
+        <div class="auth-box">
+            <div id="login-step" class="auth-step active">
+                <h2 style="color: var(--main-color); margin-bottom: 20px;">Вхід</h2>
+                <input id="in-email" placeholder="Email" type="email">
+                <input id="in-pass" type="password" placeholder="Пароль">
+                <button class="primary-btn" onclick="login()">Увійти</button>
+                <div id="login-err" class="error"></div>
+                <button class="link-btn" onclick="switchAuth('reg-step-1')">Немає акаунту? Реєстрація</button>
+            </div>
+            <div id="reg-step-1" class="auth-step">
+                <h3>Реєстрація</h3>
+                <p style="color:#666; font-size:14px; margin-bottom:15px;">Крок 1 з 3: Email</p>
+                <input id="reg-email" placeholder="Введіть Email" type="email">
+                <button class="primary-btn" onclick="sendCode()">Отримати код</button>
+                <div id="reg-err-1" class="error"></div>
+                <button class="link-btn" onclick="switchAuth('login-step')">Назад</button>
+            </div>
+            <div id="reg-step-2" class="auth-step">
+                <h3>Підтвердження</h3>
+                <p style="color:#666; font-size:14px;">Код відправлено в консоль сервера</p>
+                <input id="reg-code" placeholder="Введіть код" type="number">
+                <button class="primary-btn" onclick="verifyCode()">Далі</button>
+                <div id="reg-err-2" class="error"></div>
+            </div>
+            <div id="reg-step-3" class="auth-step">
+                <h3>Створення профілю</h3>
+                <input id="reg-nick" placeholder="Ваш Нікнейм">
+                <input id="reg-pass" type="password" placeholder="Пароль (мін. 3 символи)">
+                <input id="reg-pass2" type="password" placeholder="Повторіть пароль">
+                <button class="primary-btn" onclick="validateCredentials()">Далі</button>
+                <div id="reg-err-3" class="error"></div>
+            </div>
+            <div id="reg-step-4" class="auth-step">
+                <h3>Фото профілю</h3>
+                <div class="avatar-upload-circle" onclick="document.getElementById('reg-avatar').click()">
+                    <img id="reg-avatar-preview" style="display:none">
+                    <span id="reg-avatar-placeholder" class="avatar-placeholder">📷</span>
+                </div>
+                <input type="file" id="reg-avatar" hidden accept="image/*" onchange="previewRegAvatar(this)">
+                <button onclick="document.getElementById('reg-avatar').click()" style="background:none; border:none; color:var(--main-color); cursor:pointer; margin-bottom:10px;">Обрати фото</button>
+                <button class="primary-btn" onclick="completeReg()">Завершити</button>
+            </div>
+            <div id="reg-step-5" class="auth-step">
+                <h3>Ваш унікальний код</h3>
+                <div class="code-box"><div id="reg-code-value" class="code-value">-----</div></div>
+                <button class="primary-btn" onclick="switchAuth('login-step')">Увійти</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="main-app">
+        <div id="sidebar">
+            <div id="sidebar-header">
+                <div class="user-nav" onclick="openSettings()">
+                    <div style="position:relative">
+                        <img id="my-avatar" src="">
+                        <div id="my-status-dot" class="status-dot status-online"></div>
+                    </div>
+                    <span id="my-nick" style="font-weight:bold; font-size:17px; margin-left:5px;">...</span>
+                </div>
+                <button class="icon-btn" onclick="openSettings()" style="color:white;">⚙️</button>
+            </div>
+            <div id="search-box">
+                <input id="search-input" placeholder="Код користувача..." style="flex:1; border-radius:20px; padding:10px 15px;">
+                <button class="icon-btn" onclick="doSearch()">🔍</button>
+            </div>
+            <div id="contacts-list"></div>
+        </div>
+
+        <div id="chat-view">
+            <div id="chat-header" style="visibility: hidden;">
+                <div style="display:flex; align-items:center;">
+                    <button id="mobile-back-btn" onclick="closeChat()">←</button>
+                    <span id="chat-with-name" style="font-size:18px;">User</span>
+                </div>
+                <div style="display:flex; gap:5px;">
+                    <button class="icon-btn" onclick="blockUser()" title="Блок" style="color:red;">⛔</button>
+                    <button class="icon-btn" onclick="deleteCurrentChat()" title="Видалити">🗑️</button>
+                </div>
+            </div>
+            <div id="messages-box"></div>
+            
+            <div id="reply-bar">
+                <div>
+                    <strong>Відповідь для:</strong>
+                    <span id="reply-text-preview">...</span>
+                </div>
+                <button onclick="cancelReply()" style="background:none;border:none;font-size:18px;cursor:pointer;">✖</button>
+            </div>
+
+            <div id="input-area" style="display:none;">
+                <button class="icon-btn" onclick="document.getElementById('file-in').click()">📎</button>
+                <input type="file" id="file-in" hidden onchange="uploadFile(this)">
+                <input id="msg-in" placeholder="Написати..." style="flex:1; padding:12px; border-radius:20px; border:1px solid #ccc; font-size:16px;">
+                <button id="voice-btn" class="icon-btn" onclick="toggleRecording()">🎤</button>
+                <button class="icon-btn" onclick="sendMsg()" style="color:var(--main-color); font-weight:bold;">➤</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="settings-modal">
+        <div class="modal-content">
+            <button class="close-modal" onclick="document.getElementById('settings-modal').style.display='none'">✖</button>
+            <div class="tabs">
+                <div class="tab-btn active" onclick="openTab('profile', this)">Профіль</div>
+                <div class="tab-btn" onclick="openTab('design', this)">Дизайн</div>
+                <div class="tab-btn" onclick="openTab('privacy', this)">Приватність</div>
+            </div>
+
+            <div id="tab-profile" class="tab-content active">
+                <div style="display:flex; flex-direction:column; align-items:center; gap:15px; margin-bottom:20px;">
+                    <div class="avatar-upload-circle" style="width:100px; height:100px; margin:0; border:none;" onclick="document.getElementById('set-avatar-inp').click()">
+                        <img id="set-avatar-preview" src="">
+                    </div>
+                    <input type="file" id="set-avatar-inp" hidden onchange="previewSetAvatar(this)">
+                </div>
+                <div class="form-group"><label>Нікнейм</label><input id="set-nick-inp"></div>
+                <div class="form-group"><label>Email</label><input id="set-email-inp" readonly style="background:#f5f5f5;"></div>
+                <div class="form-group"><label>Новий пароль</label><input id="set-pass-inp" type="password" placeholder="Залиште пустим..."></div>
+                <button class="primary-btn" onclick="saveSettings()">Зберегти зміни</button>
+                <button class="link-btn" onclick="logout()" style="color:red; margin-top:30px;">Вийти з акаунту</button>
+            </div>
+
+            <div id="tab-design" class="tab-content">
+                <div class="section-title">Колір теми</div>
+                <div class="color-options">
+                    <div class="color-circle" style="background:#0088cc" onclick="setTheme('#0088cc')"></div>
+                    <div class="color-circle" style="background:#8e44ad" onclick="setTheme('#8e44ad')"></div>
+                    <div class="color-circle" style="background:#e74c3c" onclick="setTheme('#e74c3c')"></div>
+                    <div class="color-circle" style="background:#2ecc71" onclick="setTheme('#2ecc71')"></div>
+                    <div class="color-circle" style="background:#34495e" onclick="setTheme('#34495e')"></div>
+                </div>
+                <div class="form-group" style="margin-top:20px;">
+                    <label>Власний колір:</label>
+                    <input type="color" onchange="setTheme(this.value)" style="height:50px;">
+                </div>
+            </div>
+
+            <div id="tab-privacy" class="tab-content">
+                <div class="section-title">Мій статус</div>
+                <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                    <button class="inline-btn" onclick="setStatus('online')">🟢 Online</button>
+                    <button class="inline-btn" onclick="setStatus('dnd')">🔴 Не турбувати</button>
+                    <button class="inline-btn" onclick="setStatus('invisible')">👻 Невидимка</button>
+                </div>
+                <p style="color:#666; font-size:13px; margin-top:10px;">
+                    "Невидимка" показує вас офлайн для інших.
+                </p>
+                
+                <hr style="border:0; border-top:1px solid #eee; margin:25px 0;">
+                <div class="section-title">Мій код пошуку</div>
+                <div class="code-box">
+                    <span id="settings-code-value" class="code-value">-----</span>
+                    <div style="display:flex; gap:5px;">
+                        <button class="inline-btn" onclick="changeCodePrompt(false)">Зміна</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let token = localStorage.getItem('chat_token');
+        let myUser = null;
+        let currentChat = null;
+        let ws = null;
+        let regEmail = '';
+        let replyToId = null;
+        let mediaRecorder = null;
+        let audioChunks = [];
+
+        const savedColor = localStorage.getItem('chat_theme');
+        if(savedColor) setTheme(savedColor);
+        if(token) checkSession();
+
+        function setTheme(c) {
+            document.documentElement.style.setProperty('--main-color', c);
+            document.querySelector('meta[name="theme-color"]').setAttribute('content', c);
+            localStorage.setItem('chat_theme', c);
+            const overlay = document.getElementById('login-overlay');
+            if(overlay) overlay.style.background = c;
+        }
+
+        function openTab(tabId, btn) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+            document.getElementById('tab-' + tabId).classList.add('active');
+            if(btn) btn.classList.add('active');
+        }
+
+        function switchAuth(id) {
+            document.querySelectorAll('.auth-step').forEach(el=>el.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            document.querySelectorAll('.error').forEach(e => e.innerText = '');
+        }
+
+        async function login() {
+            const e = document.getElementById('in-email').value;
+            const p = document.getElementById('in-pass').value;
+            const res = await fetch('/login', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({email:e, password:p})});
+            const d = await res.json();
+            if(d.ok) { token=d.token; localStorage.setItem('chat_token',token); myUser=d; enterApp(); }
+            else document.getElementById('login-err').innerText = d.error;
+        }
+        async function sendCode() {
+            regEmail=document.getElementById('reg-email').value;
+            if(!regEmail.includes('@')) { document.getElementById('reg-err-1').innerText='Некоректний email'; return; }
+            await fetch('/send-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:regEmail})});
+            switchAuth('reg-step-2');
+        }
+        async function verifyCode() {
+            const c=document.getElementById('reg-code').value;
+            const res=await fetch('/verify-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:regEmail,code:c})});
+            if((await res.json()).ok) switchAuth('reg-step-3');
+            else document.getElementById('reg-err-2').innerText='Невірний код';
+        }
+        function validateCredentials() { switchAuth('reg-step-4'); }
+        function previewRegAvatar(inp) { if(inp.files[0]) document.getElementById('reg-avatar-preview').src = URL.createObjectURL(inp.files[0]); document.getElementById('reg-avatar-preview').style.display='block'; }
+        async function completeReg() {
+            const fd = new FormData();
+            fd.append('email', regEmail);
+            fd.append('nick', document.getElementById('reg-nick').value);
+            fd.append('password', document.getElementById('reg-pass').value);
+            const file = document.getElementById('reg-avatar').files[0];
+            if(file) fd.append('avatar', file);
+            const res = await fetch('/complete-register',{method:'POST',body:fd});
+            const d = await res.json();
+            if(d.ok) { document.getElementById('reg-code-value').innerText = d.code; switchAuth('reg-step-5'); }
+            else { switchAuth('reg-step-3'); document.getElementById('reg-err-3').innerText = d.error; }
+        }
+
+        async function checkSession() {
+            try {
+                const res = await fetch('/me?token='+token);
+                const d = await res.json();
+                if(d.ok) { myUser=d.user; enterApp(); } else logout();
+            } catch(e){ logout(); }
+        }
+        function logout() { localStorage.clear(); location.reload(); }
+        function enterApp() {
+            document.getElementById('login-overlay').style.display='none';
+            document.getElementById('main-app').style.display='flex';
+            updateMyProfileUI();
+            loadContacts();
+            connectWS();
+        }
+
+        function updateMyProfileUI() {
+            document.getElementById('my-nick').innerText = myUser.nick;
+            document.getElementById('my-avatar').src = myUser.avatar;
+            document.getElementById('my-status-dot').className = `status-dot status-${myUser.status}`;
+        }
+
+        function openSettings() {
+            document.getElementById('settings-modal').style.display='flex';
+            openTab('profile', document.querySelector('.tab-btn'));
+            document.getElementById('set-nick-inp').value = myUser.nick;
+            document.getElementById('set-email-inp').value = myUser.email || '';
+            document.getElementById('set-avatar-preview').src = myUser.avatar;
+            loadMyCode();
+        }
+
+        async function loadMyCode() {
+            const res = await fetch('/get-code?token=' + token);
+            const d = await res.json();
+            if(d.ok) document.getElementById('settings-code-value').innerText = d.code || '-----';
+        }
+
+        // New Change Code Logic
+        function changeCodePrompt(randomGen) {
+            if(!confirm('Ви впевнені, що хочете змінити код? Старий код перестане діяти.')) return;
+    
+            // Відправляємо запит без параметру new_code, сервер згенерує сам
+            fetch('/change-code', {
+                method:'POST', 
+                headers:{'Content-Type':'application/json'}, 
+                body:JSON.stringify({token})
+            })
+            .then(r=>r.json())
+            .then(d=>{ 
+                if(d.ok) { 
+                    document.getElementById('settings-code-value').innerText = d.code; 
+                } else { 
+                    alert(d.error); 
+                } 
+            });
+        }
+
+        async function setStatus(s) {
+            await fetch('/set-status', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({token, status:s})});
+            myUser.status = s;
+            updateMyProfileUI();
+            alert('Статус змінено на ' + s);
+        }
+
+        function previewSetAvatar(inp) { if(inp.files[0]) document.getElementById('set-avatar-preview').src=URL.createObjectURL(inp.files[0]); }
+        async function saveSettings() {
+            const fd = new FormData();
+            fd.append('token', token);
+            fd.append('nick', document.getElementById('set-nick-inp').value);
+            const pass = document.getElementById('set-pass-inp').value;
+            if(pass) fd.append('password', pass);
+            const file = document.getElementById('set-avatar-inp').files[0];
+            if(file) fd.append('avatar', file);
+            const res = await fetch('/update-profile', {method:'POST', body:fd});
+            const d = await res.json();
+            if(d.ok) { myUser = d.user; updateMyProfileUI(); alert('Збережено'); document.getElementById('settings-modal').style.display='none'; } 
+            else alert(d.error);
+        }
+
+        async function loadContacts() {
+            const res = await fetch('/contacts?token='+token);
+            const d = await res.json();
+            const list = document.getElementById('contacts-list');
+            list.innerHTML='';
+            if(!d.contacts.length) list.innerHTML='<div style="padding:20px;text-align:center;color:#999">Немає чатів</div>';
+            else d.contacts.forEach(u=>renderContact(u, list));
+        }
+
+        async function doSearch() {
+            const q = document.getElementById('search-input').value;
+            if(!q) { loadContacts(); return; }
+            const res = await fetch(`/search?nick=${q}&token=${token}`);
+            const d = await res.json();
+            const list = document.getElementById('contacts-list');
+            list.innerHTML='';
+            d.results.forEach(u=>renderContact(u, list));
+        }
+
+        function renderContact(u, list) {
+            const div = document.createElement('div');
+            div.className = 'contact-item';
+            div.id = 'contact-'+u.nick;
+            div.innerHTML = `
+                <div class="contact-avatar-wrap">
+                    <img class="contact-avatar" src="${u.avatar}">
+                    <div class="status-dot status-${u.status}" id="status-dot-${u.nick}"></div>
+                </div>
+                <div><div style="font-weight:600; color:#333;">${u.nick}</div></div>
+            `;
+            div.onclick = () => openChat(u.nick, div);
+            list.appendChild(div);
+        }
+
+        function connectWS() {
+            const p = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${p}//${location.host}/ws?token=${token}`);
+            ws.onopen = () => console.log('Connected');
+            ws.onmessage = (e) => {
+                const d = JSON.parse(e.data);
+                if (d.type === 'status_update') {
+                    const dot = document.getElementById(`status-dot-${d.nick}`);
+                    if (dot) dot.className = `status-dot status-${d.status}`;
+                    return;
+                }
+                if(d.type === 'error') { alert(d.message); return; }
+                if(d.from === currentChat || (d.from === myUser.nick && d.to === currentChat)) {
+                    renderMsg(d); scrollToBottom();
+                }
+                if(d.from !== currentChat && d.from !== myUser.nick) loadContacts();
+            };
+            ws.onclose = () => { console.log('Disconnected'); setTimeout(connectWS, 3000); };
+        }
+
+        async function openChat(nick, el) {
+            currentChat = nick;
+            cancelReply();
+            document.querySelectorAll('.contact-item').forEach(i=>i.classList.remove('active'));
+            if(el) el.classList.add('active');
+            
+            document.getElementById('main-app').classList.add('mobile-chat-open');
+            document.getElementById('chat-header').style.visibility='visible';
+            document.getElementById('chat-with-name').innerText=nick;
+            document.getElementById('messages-box').innerHTML='';
+            
+            checkBlockStatus();
+            const res = await fetch(`/messages?with_user=${nick}&token=${token}`);
+            const d = await res.json();
+            d.messages.forEach(renderMsg);
+            setTimeout(scrollToBottom, 50);
+        }
+
+        function closeChat() {
+            currentChat = null;
+            document.getElementById('main-app').classList.remove('mobile-chat-open');
+            setTimeout(() => { document.getElementById('messages-box').innerHTML=''; }, 300);
+        }
+
+        function renderMsg(m) {
+            const box = document.getElementById('messages-box');
+            const div = document.createElement('div');
+            const isMine = m.from === myUser.nick;
+            div.className = `msg ${isMine?'mine':''}`;
+            div.ondblclick = () => initiateReply(m.id, m.text, m.from);
+            
+            let content = '';
+            
+            if(m.reply_to) {
+                content += `<div class="msg-reply-preview">
+                    <strong>${m.reply_to.sender}</strong>: ${m.reply_to.text ? m.reply_to.text.substring(0,30)+'...' : 'Медіа'}
+                </div>`;
+            }
+
+            // Автоматичне визначення типу (виправлено: lowercase для розширень)
+            let type = m.msg_type;
+            const lowerText = m.text ? m.text.toLowerCase() : '';
+
+            // Більш надійна перевірка розширень
+            if(lowerText.match(/\.(mp3|wav|ogg|m4a)$/)) type = 'audio';
+            if(lowerText.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/)) type = 'image';
+            if(lowerText.match(/\.(mp4|webm|ogg|mov|mkv|avi|wmv|m4v)$/)) type = 'video';
+
+            if (type === 'image') {
+                content += `<img src="${m.text}" onclick="window.open(this.src)" style="max-width:100%;border-radius:8px; cursor:pointer;">`;
+            } else if (type === 'audio') {
+                content += `<audio controls src="${m.text}"></audio>`;
+            } else if (type === 'video') {
+                // Додано playsinline і чорний фон для відео
+                content += `<video controls playsinline preload="metadata" src="${m.text}" style="max-width:100%; max-height:300px; border-radius:8px; background:#000;"></video>`;
+            } else if (type === 'file') {
+                const parts = m.text.split('/');
+                const name = parts[parts.length-1];
+                content += `<a href="${m.text}" target="_blank" style="color:var(--main-color); text-decoration:none; display:flex; align-items:center; gap:5px;">📄 ${name}</a>`;
+            } else {
+                content += `<div>${escapeHtml(m.text)}</div>`;
+            }
+            
+            const t = new Date(m.ts*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+            div.innerHTML = `${content}<div style="font-size:10px;opacity:0.7;text-align:right;margin-top:4px;">${t}</div>`;
+            box.appendChild(div);
+        }
+
+        function escapeHtml(unsafe) {
+            return unsafe ? unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : '';
+        }
+
+        function scrollToBottom() { 
+            const b=document.getElementById('messages-box'); 
+            b.scrollTop=b.scrollHeight; 
+        }
+
+        function sendMsg() {
+            const inp = document.getElementById('msg-in');
+            const txt = inp.value.trim();
+            if((!txt) || !currentChat) return;
+            
+            const payload = {to:currentChat, text:txt, type:'text'};
+            if(replyToId) payload.reply_to_id = replyToId;
+            
+            ws.send(JSON.stringify(payload));
+            inp.value = '';
+            cancelReply();
+        }
+
+        function initiateReply(id, text, author) {
+            replyToId = id;
+            document.getElementById('reply-bar').style.display = 'flex';
+            document.getElementById('reply-text-preview').innerText = `${author}: ${text.substring(0, 30)}...`;
+            document.getElementById('msg-in').focus();
+        }
+        function cancelReply() {
+            replyToId = null;
+            document.getElementById('reply-bar').style.display = 'none';
+        }
+
+        async function uploadFile(inp) {
+            if(!inp.files[0]) return;
+            const file = inp.files[0];
+            const fd = new FormData(); 
+            fd.append('file', file);
+            
+            // Визначення типу перед завантаженням (додано fallback на розширення)
+            let type = 'file';
+            const mime = file.type;
+            const name = file.name.toLowerCase();
+
+            if(mime.startsWith('image/') || name.match(/\.(jpg|jpeg|png|gif|webp)$/)) type = 'image';
+            else if(mime.startsWith('audio/') || name.match(/\.(mp3|wav|ogg)$/)) type = 'audio';
+            else if(mime.startsWith('video/') || name.match(/\.(mp4|webm|mov|mkv|avi)$/)) type = 'video';
+
+            const res = await fetch('/upload', {method:'POST', body:fd});
+            const d = await res.json();
+            
+            ws.send(JSON.stringify({to:currentChat, text:d.url, type: type}));
+            inp.value = '';
+        }
+
+        async function toggleRecording() {
+            const btn = document.getElementById('voice-btn');
+            if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder.start();
+                    audioChunks = [];
+                    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                    mediaRecorder.onstop = async () => {
+                        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                        const fd = new FormData();
+                        fd.append('file', blob, 'voice.webm');
+                        const res = await fetch('/upload', {method:'POST', body:fd});
+                        const d = await res.json();
+                        ws.send(JSON.stringify({to:currentChat, text:d.url, type: 'audio'}));
+                    };
+                    btn.classList.add('recording');
+                } catch(e) { alert('Мікрофон недоступний'); }
+            } else {
+                mediaRecorder.stop();
+                btn.classList.remove('recording');
+            }
+        }
+
+        async function blockUser() { if(confirm(`Заблокувати ${currentChat}?`)) { await fetch('/block-user', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token, target_nick:currentChat, action:'block'})}); checkBlockStatus(); } }
+        async function checkBlockStatus() {
+            if(!currentChat) return;
+            const res = await fetch(`/chat-info?with_user=${currentChat}&token=${token}`);
+            const d = await res.json();
+            document.getElementById('input-area').style.display = d.i_blocked ? 'none' : 'flex';
+        }
+        async function deleteCurrentChat() { 
+            if(confirm('Видалити чат?')) { 
+                await fetch('/delete-chat', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token, with_user:currentChat})}); 
+                document.getElementById('messages-box').innerHTML=''; 
+                closeChat();
+                loadContacts(); 
+            } 
+        }
+
+        document.getElementById('msg-in').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') sendMsg();
+        });
+    </script>
+</body>
+</html>
